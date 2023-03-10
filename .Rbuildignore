@@ -1,0 +1,11 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^auto/
+^auto$
+[.]emacs[.]desktop.*
+^TAGS$
+[^/]*[.]Rout$
+^[.]RData$
+/[.]RData$
+^.*[.]Rhistory$
+^tests/testthat/[.]RData$

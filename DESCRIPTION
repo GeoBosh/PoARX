@@ -1,0 +1,33 @@
+Package: PoARX
+Type: Package
+Title: Fit PoARX Models to Multivariate Time Series
+Version: 0.3.4
+Date: 2021-05-19
+Authors@R: c(person(given = "Jamie", family = "Halliday", 
+                     role = c("aut"), 
+	             email = "jamie.halliday@manchester.ac.uk"),
+             person(given = c("Georgi", "N."), family = "Boshnakov", 
+                    role = c("aut", "cre"), 
+                    email = "georgi.boshnakov@manchester.ac.uk") )
+Description: Fit Poisson autoregressive models with exogenous covariates
+   (PoARX) to multivariate time series. The time series can be independent 
+   or modelled with a dependency using Frank’s Copula <arXiv:1806.04892>.
+License: GPL (>= 2)   
+Depends: R (>= 3.3.0)
+Imports: abind,
+    copula,
+    Formula,
+    lubridate,
+    MASS,
+    Matrix,
+    numDeriv,
+    Rdpack (>= 0.7),
+    stats,
+    utils
+Suggests: testthat,
+    knitr
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 6.1.0
+RdMacros: Rdpack
+VignetteBuilder: knitr

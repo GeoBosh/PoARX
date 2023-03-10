@@ -1,0 +1,611 @@
+\documentclass[a4paper]{article}
+
+%-------------------------------------------------------------------------------
+%	  PACKAGES
+%-------------------------------------------------------------------------------
+
+\usepackage[utf8]{inputenc}
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage{amsmath, amsthm, amsfonts, amssymb, bm, mathtools}
+\usepackage{appendix}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[round]{natbib}
+\usepackage{subcaption}
+
+% \VignetteIndexEntry{PoARX-vignette}
+
+%-------------------------------------------------------------------------------
+%	  COMMANDS
+%-------------------------------------------------------------------------------
+
+\newcommand\given[1][]{\:#1\vert\:}
+\newcommand\abs[1]{\left|#1\right|}
+\newcommand\norm[1]{\left|\left|#1\right|\right|}
+
+\newcommand{\e}{\mathrm{e}^}
+\newcommand{\Kdim}{\mathrm{K}}
+\newcommand{\PoARX}{\mathrm{PoARX}}
+\newcommand{\PoARXpq}[3][2]{\ensuremath{\PoARX_{#1}(#2,#3)}}
+
+\newcommand{\pgfP}[2][]{P_{#1}(#2)}
+\newcommand{\pgfQ}[2][]{Q_{#1}(#2)}
+\newcommand{\infoF}[1][T]{\mathcal{F}_{#1}}
+\newcommand{\infoG}[1][T]{\mathcal{G}_{#1}}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+%-------------------------------------------------------------------------------
+%	  THEOREMS
+%-------------------------------------------------------------------------------
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{definition}{Definition}
+\newtheorem{lemma}{Lemma}
+
+%-------------------------------------------------------------------------------
+%	  MATH OPERATORS
+%-------------------------------------------------------------------------------
+
+\DeclareMathOperator{\E}{E}
+\DeclareMathOperator{\Var}{Var}
+\DeclareMathOperator{\Cov}{Cov}
+\DeclareMathOperator{\vect}{vec}
+\DeclareMathOperator{\interior}{int}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+
+\begin{document}
+%\SweaveOpts{concordance=TRUE}
+
+%-------------------------------------------------------------------------------
+%	  TITLE
+%-------------------------------------------------------------------------------
+
+\title{Multivariate Time Series Modelling: The PoARX Package}
+\author{Jamie Halliday \and Georgi N. Boshnakov}
+\maketitle
+
+%%%%------------------------------------------------------------------------%%%%
+%%%%---------- Introduction
+\section{Introduction}
+
+Modelling multivariate time series of counts has become increasingly popular
+with the growth in the amount of data available and the desire for companies to
+understand it. Such data appears in many fields, such as statistics,
+econometrics, and the social and physical sciences. When data do not follow a
+time series and show no serial correlation, generalised linear models
+\citep{McCullaghNelder1989} are a popular tool for modelling the variation.
+For any count data, the Poisson distribution is the most popular
+distribution and in some respects has become the integer analogue of the
+Gaussian distribution. In an attempt to create a Poisson model for
+integer-valued time series, \citet{FokianosEtAl2009} drew inspiration from the
+GARCH model \citep{Bollerslev1986}. They allowed the intensity value to contain
+an autoregressive feedback mechanism similar to the volatility in GARCH models.
+They called this model the Poisson autoregressive model, where past values of
+the process and the intensity improve model fit and predictions. In
+\citet{AgostoEtAl2016}, a new class of dynamic Poisson models was proposed that
+allow for (exogenous) covariates to strengthen the predictions, referred to as
+the Poisson autoregressive model with exogenous covariates (PARX). These models
+can be implemented using \code{tscount} \citep{Rtscount} in R \citep{R}.
+
+However, these Poisson autoregressive models deal only with univariate models
+and do not make any consideration for multivariate data. Work on multivariate
+generalisations of the Poisson distribution have been relatively sparse so far.
+A summary of multivariate (Poisson) distributions is provided in
+\citet{InouyeEtAl2017}, which includes parametric extensions and copula
+modelling.
+
+\code{PoARX} for R allows the modelling of multivariate time series following
+a PoARX model (see Section \ref{S:Model} for details). A univariate PoARX model
+is the same as the PARX model described by \citet{AgostoEtAl2016}, while
+extension to the multivariate case can allow for a dependence between the time
+series as modelled by Frank's copula. The implementation of the \code{PoARX}
+package is limited to Poisson marginal distributions coupled by Frank's copula,
+but the underlying framework provides a blueprint for the modelling of
+multivariate time series under different specifications.
+
+The main function is called \code{fitPoARX} and it allows multivariate time
+series to be modelled by the PoARX model. The joint distribution of the time
+series can be produced using independence or by using Frank's copula. Different
+structures are allowed by the model, but it also possible to fit the same
+parameters (and therefore structure) across the components of a time series.
+The estimation procedure uses the method of inference function (IFM) outlined
+by \citet{Joe2005}. Computational time is much faster and equivalent asymptotic
+results to standard maximum likelihood theory exist. The optimisation is carried
+out using \code{constrOptim}, which ensures that all parameters are positive and
+that the stationarity restriction is followed. The interface for the function
+uses the package \code{Formula} \citep{RFormula} to handle multivariate formula
+in one input with use of the \code{|} operator. This should allow users familiar
+with R to use and understand the interface quickly.
+
+\textbf{@jamie: What happens in each section?}
+
+%%%%------------------------------------------------------------------------%%%%
+%%%%---------- The underlying theory
+\section{The multivariate PoARX model}
+\label{S:Model}
+
+In this section we present the PoARX class of models, starting with the
+univariate PoARX model and basic copula theory before generalising the PoARX
+model to higher dimensions. In our implementation we have only used Frank's
+copula, but any copula could be used. We chose Frank's copula because of its
+ability to capture both positive and negative dependence in two dimensions.
+
+\subsection{The univariate PoARX model}
+
+The univariate PoARX model is the same as the PARX model by
+\cite{AgostoEtAl2016}, where we have changed the terminology to avoid confusion
+with other meanings of ``P'' in similar abbreviations. For example, PAR is
+often taken to mean periodic autoregression.
+
+Let $\{Y_t; \ t = 1,2, \dots \}$ denote an observed time series of counts, so
+that $Y_t \in \{0,1,2, \dots \}$ for all $t = 1,2, \ldots$.  Further, let
+$x_{t-1} \in \mathbb{R}^r$ denote a vector of additional covariates considered
+for inclusion in the model. We say that $\{ Y_t \}$ is a univariate
+PoARX($p$,$q$) process and write $\{ Y_t \} \sim \PoARX_1(p,q)$, if its dynamics
+can be written as follows:
+\begin{equation}
+\label{E:uniPoARXModel}
+\begin{gathered}
+Y_t \given \infoF[t-1] \sim \text{Poisson} (\lambda_t),\\
+\lambda_{t} = \omega + \sum_{l=1}^p \alpha_l Y_{t-l} +
+  \sum_{l=1}^q \beta_l \lambda_{t-l} + \eta \cdot x_{t-1},
+\end{gathered}
+\end{equation}
+where $\text{Poisson}(\lambda)$ denotes a Poisson distribution
+with parameter $\lambda$, $\infoF[t-1]$ denotes the $\sigma$-field of past
+knowledge, $\sigma \{ Y_{1-p}, \dots, Y_{t-1}, \lambda_{1-q}, \dots,
+\lambda_{t-1}, x_1, \dots, x_{t-1} \} $,  $\omega \geq 0$ is an intercept term,
+$\{ \alpha_1, \dots , \alpha_p \}$ and $\{ \beta_1, \dots , \beta_q \}$ are
+non-negative autoregressive coefficients, and $\eta$ is a vector of non-negative
+coefficients for the exogenous covariates. Thus, the model for the intensity,
+$\lambda_{t}$, uses the past $p$ values of the process, the past $q$ values of
+the intensity and the covariates.
+
+\citet{AgostoEtAl2016} place two further restrictions on the model to ensure
+that the process is stationary and ergodic. The autoregressive coefficients must
+sum to less than one,
+\begin{equation}
+\label{E:uniPoARXrestriction}
+\sum_{i=1}^{\max\{p,q\}} (\alpha_i + \beta_i) < 1,
+\end{equation}
+and the exogenous covariates must follow a Markov structure,
+\begin{equation}
+\label{E:Markov}
+x_{t}(k) = g(x_{t-1}(k), \dots, x_{t-m}(k) ; \epsilon_t),
+ \qquad k = 1, \dots, r,
+\end{equation}
+for some $m>0$, where the components are denoted using $x_t(k)$ to avoid
+confusion later. In Equation~\eqref{E:Markov}, $g(\bm{x}, \epsilon)$ is some
+function with vector $\bm{x}$ independent of the observed $Y_t$ and unobserved
+$\lambda_t$, and with $\epsilon_t$ an i.i.d. error term.
+
+\subsection{Copulas}
+
+Copulas proved a well-defined approach to model multivariate data, with the
+dependence structure considered separately from the univariate margins
+\citep{Joe2005}. Copulas developed from a theorem by \citet{Sklar} stating that
+any multivariate distribution can be represented as a function of its marginals.
+An important class of copulas are called Archmidean copulas \citep{Nelsen2006},
+which are easily constructed from a generator function $\varphi (\cdot)$.
+
+Frank's copula belongs to the class of Archmidean copulas, where the joint
+distribution is written
+\begin{equation}
+\label{E:FC}
+C_\rho (u_1,\dots u_\Kdim) = \varphi_\rho^{[-1]}
+\left( \sum_{i=1}^\Kdim \varphi_\rho(u_i) \right)
+,
+\end{equation}
+with the generator function
+\begin{equation}
+\label{E:FCGenerator}
+\varphi_\rho(t) = - \log \left( \frac{ \exp ( - \rho t) - 1}{
+ \exp( - \rho) - 1} \right),
+\end{equation}
+and its inverse
+\begin{equation}
+\label{E:FCGeneratorInverse}
+  \varphi_\rho^{[-1]}(t) = \varphi_\rho^{-1}(t)
+  =  - \frac{1}{\rho} \log \left( 1 + \exp(-t)(\exp(-\rho) - 1) \right).
+\end{equation}
+
+When a copula is used to model discrete marginal distributions, the copula
+is no longer unique. \citet{Joe2014} remark that this is due to the stepwise
+distribution functions. Despite this, copulas are still valid constructions
+\citep{GenestNeslehova2007} and \citet{TrivediZimmer2017} provide evidence that
+suggests there are fewer identification problems when there are covariates
+present in the marginal distributions. In the continuous case, the joint
+probability density function is obtained by differentiation. In the discrete
+case, the probability mass function are obtained as rectangle probabilities.
+
+\subsection{The multivariate PoARX model}
+
+Let $\{ Y_t = (Y_t^1, \dots, Y_t^\Kdim), \  t = 1,2, \dots \}$ be a multivariate
+time series and let $\{ x_{t-1}^j = (x_{t-1}^j(1), \dots, x_{t-1}^j(r))^\top$,
+$j = 1, 2, \dots, \Kdim \}$ be the matrix of exogenous covariates associated
+with $Y_t$. $\{ Y_t \}$ is a PoARX process, or
+$\{ Y_t \} \sim \PoARXpq[\Kdim]pq$ if each of the component time series is a
+univariate PoARX  process and the joint conditional distribution is a copula
+Poisson. Let the intensities of PoARX processes be
+$\{ \lambda_{t}^{j}; \ t = 1, 2 \dots, \ j=1, \dots, \Kdim \}$ and be denoted
+using $\lambda_t = \left( \lambda_{t}^{1}, \dots \lambda_{t}^{\Kdim} \right)$.
+
+More formally, let $\mathcal{D}(\lambda^{1},\dots, \lambda^{\Kdim};\rho)$
+represent a multivariate distribution based on Frank's copula
+(Equations~\eqref{E:FC}--\eqref{E:FCGeneratorInverse}) with marginal
+distributions Poisson($\lambda^{1}$), $\dots$, Poisson($\lambda^{\Kdim}$) and
+dependency parameter $\rho$. The distribution function of $\mathcal{D}(\cdot)$
+is
+\begin{equation}
+\label{E:multivariateCDF}
+F(y; \lambda, \rho) =
+   C_{\rho} (F_1(y^1; \lambda^1), \dots, F_\Kdim(y^\Kdim; \lambda^\Kdim)),
+\end{equation}
+where $F_{1}, \dots, F_{\Kdim}$ are the distribution functions of the Poisson
+marginals, i.e.
+\begin{equation*}
+  F_j(x; \mu)
+  = \sum_{k=0}^x \e{-\mu} \frac{\mu^k}{k!}, \qquad j = 1,\dots, \Kdim
+  .
+\end{equation*}
+
+
+\begin{subequations}
+\label{E:PoARX}
+The conditional distribution of $Y_{t}$ is a Frank's copula distribution
+\begin{equation}
+\label{E:PoARXa}
+    Y_t \given \infoF[t-1] \sim \mathcal{D} (\lambda_t^1, \dots
+    \lambda_t^\Kdim; \rho)
+    ,
+\end{equation}
+where $\infoF[t-1]$ denotes the $\sigma$-field defined by all previous
+observations and exogenous covariates,
+$\sigma \{ Y_{1-p}, \dots, Y_{t-1},
+\lambda_{1-q}, \dots, \lambda_{t-1}, x_1, \dots, x_{t-1} \}$, where each term
+contains information on all components of the time series. As before, the
+dynamics of the components of $Y_{t}$ are specified by the equations:
+\begin{gather}
+Y_t^j \given \infoF[t-1] \sim \text{Poisson} (\lambda_t^j), \qquad
+j = 1, \dots, \Kdim;
+\label{E:PoARXb}
+\\
+\lambda_{t}^j = \omega^j + \sum_{l=1}^p \alpha_l^j Y_{t-l}^j + \sum_{l=1}^q
+\beta_l^j  \lambda_{t-l}^j + \eta^j \cdot x_{t-1}^j, \qquad j=1, \dots, \Kdim;
+\label{E:PoARXc}
+\end{gather}
+where $\alpha^j_l, \beta^j_l \geq 0$ denote coefficients for the past values of
+the observations and intensities respectively, $\eta^j$ denotes the vector of
+(non-negative) coefficients for the exogenous covariates, and $\omega^j \geq 0$
+denotes an (optional) intercept term. For each univariate process, the two
+conditions in Equations~\eqref{E:uniPoARXrestriction} and~\eqref{E:Markov}
+must hold.
+\end{subequations}
+
+%%%%------------------------------------------------------------------------%%%%
+%%%%------ The example
+\section{Fitting PoARX Models}
+\label{S:Example}
+
+<<preliminaries, echo=FALSE>>=
+set.seed(83)
+options(bitmapType="cairo") # temporary !!! TODO: remove !!
+@
+
+\subsection{Data}
+
+The following example assumes that the package is made available in the current
+R session using the command below.
+<<library>>=
+library("PoARX")
+@
+We illustrate the \code{PoARX} package using a dataset from
+\citet{IhlerEtAl2006}, who used it in their work on event detection. Originally,
+the counts of people entering and exiting the building (N$^{\text{I}}$(t) and
+N$^{\text{O}}$(t), respectively) were assumed to follow a Poisson distribution
+and the counts used to detect the occurrence of an event in the building.
+The data is available when \code{PoARX} is attached, but can also be loaded
+using \code{data()}.
+<<data>>=
+data("building", package = "PoARX")
+head(building)
+@
+The dataset contains counts of the estimated number of people that entered and
+exited a building over thirty-minute intervals of a University of California,
+Irvine (UCI) campus building. Counts were recorded by an optical sensor at the
+front door starting from the end of 23/07/2005 until the end of 05/11/2005.
+<<graphs, echo = FALSE>>=
+graphData <- building[building$Date >= lubridate::dmy("23/07/2005") &
+                          building$Date <= lubridate::dmy("13/08/2005"),]
+@
+<< label = flowIn, echo = FALSE, results = hide >>=
+png("FlowIn.png", height = 400, width = 1000)
+par(mar = c(2.9,3.9,0.1,0.1))
+plot(graphData$FlowIn, type = 'l', lwd = 1.5,
+     axes = F, xlab = "", ylab = "")
+axis(side = 1, at = seq(from = 25, to = 1008, by = 48), las = 1,
+     labels = rep(substr(unique(building$Day), 1, 1), 3),
+     lwd = 0.5, lwd.ticks = 1, cex.axis = 1.5)
+mtext(expression(N^I*(t)), side=2, line=0,
+      cex=1.8, las=2, col="black")
+dev.off()
+@
+<< label = flowOut, echo = FALSE, results = hide >>=
+png("FlowOut.png", height = 400, width = 1000)
+par(mar = c(2.9,3.9,0.1,0.1))
+plot(graphData$FlowOut, type = 'l', lwd = 1.5,
+     axes = F, xlab = "", ylab = "")
+axis(side = 1, at = seq(from = 25, to = 1008, by = 48), las = 1,
+     labels = rep(substr(unique(building$Day), 1, 1), 3),
+     lwd = 0.5, lwd.ticks = 1, cex.axis = 1.5)
+mtext(expression(N^O*(t)), side=2, line=0,
+      cex=1.8, las=2, col="black")
+dev.off()
+@
+Three weeks worth of the data in question is shown in Figure \ref{fig:Flows}.
+\begin{figure}[t]
+\centering
+\caption{Three weeks of counts for people entering and
+exiting a UCI campus building.}
+\begin{subfigure}[b]{0.85\textwidth}
+   \includegraphics[width=1\linewidth]{FlowIn}
+   \caption{Entry data}
+   \label{fig:FlowIn}
+\end{subfigure}
+\begin{subfigure}[b]{0.85\textwidth}
+   \includegraphics[width=1\linewidth]{FlowOut}
+   \caption{Exit data}
+   \label{fig:FlowOut}
+\end{subfigure}
+\label{fig:Flows}
+\end{figure}
+The data shows periodic tendencies but is also influenced by events within the
+building causing an influx of traffic. In total, there are 5040 observations,
+which corresponds to 15 weeks of data. The data are stored
+as a data frame with one row for each half hour interval, and 5 columns
+containing information on the following:
+\begin{itemize}
+   \item \code{Day}: The day of the week of the observation.
+   \item \code{Date}: The date of the observation.
+   \item \code{Time}: The start of the half hour interval of the observation.
+   \item \code{FlowIn}: The number of people entering the building during the
+   half-hour period.
+   \item \code{FlowOut}: The number of people leaving the building during the
+   half-hour period.
+   \item \code{EventId}: The ID number of the event occurring.
+   \item \code{EventStart}: An indicator that takes the value 1 when an event
+   will begin in the next hour and 0 otherwise.
+   \item \code{EventEnd}: An indicator that takes the value 1 when an event has
+   ended in the previous hour and 0 otherwise.
+   \item \code{Weekday}: An indicator that takes the value 1 when the day is
+   during the working week (Monday--Friday) and 0 otherwise.
+   \item \code{Daytime}: An indicator that takes the value 1 when the time is
+   between daylight hours (07:30--19:30) and 0 otherwise.
+\end{itemize}
+
+In this demonstration we will fit several PoARX models to the data in order
+to obtain the best predictions for the number of people entering and
+exiting the building. These predictions will be based on lagged values of the
+observed time series, lagged values of the intensity values, and exogenous
+covariates. These covariates are indicator variables, representing
+an uplift for working days (\code{Weekday}), an uplift during working hours
+(\code{Daytime}) and an event indicator. The third indicator differs for each
+time series - for people entering the building we will use \code{EventStart}
+and for people exiting the building we will use \code{EventEnd}. After choosing
+the best set of predictors, we investigate whether Frank's copula improves
+the predictions.
+
+\subsection{Estimation and in-sample model evaluation}
+
+To obtain the most accurate predictions, we will fit four types of model to the
+data. The four models are a mixture of PoARX models with and without covariates,
+as well as coupling using independence and Frank's copula. Model~1 treats the
+two time series independently and uses no exogenous covariates - relying on time
+series characteristics alone. Model~2 also uses no exogenous covariates but
+jointly models the times series using Frank's copula. Models~3 and 4 add the
+three covariates mentioned earlier, where Model~3 assumes independence and
+Model~4 uses Frank's copula.
+
+Our main assessment tool will be the log score \citep{Bickel2007}. It can be
+calculated as follows; let $r = (r_1, \dots, r_n)$ be a vector of probabilities
+for $i = 1, \dots, n$ observed events. Then the log score is
+\begin{equation*}
+L(r) = \sum_{i=1}^n \log (r_i).
+\end{equation*}
+Additionally, throughout the training process we used 5-fold cross validation
+\citep{Stone1974} on the training set to allow us to intrinsically measure the
+predictive accuracy of the models, rather than the estimation ability. Using
+the first 4000 observations to create a training set, the cross-validation will
+take place on 2000 observations in each fold. Since our data is time series, we
+cannot randomly assign the observations to each fold, so we use overlapping
+folds and aggregate the log scores of predictions for each observation to obtain
+the cross-validation log score.
+<< label = training >>=
+training <- building[1:4000,]
+@
+
+The first step to choosing any good predictive model is to pick the best set
+of predictive covariates. Using stepwise selection with the cross-validated log
+scores as the metric, the covariates are chosen separately for each time series.
+For the number of people entering the building (N$^{\text{I}}$(t)), we chose to
+use 4 lagged values for the observations (lags 1, 2, 48, 336) and 1 lagged value
+for the means (lag 1). Lagged values from the previous 2 observations represent
+the flow of people within the last hour, whilst the lag of 48 corresponds to the
+same time point on the previous day, and 336 to the same time point on the same
+day in the previous week. For the number of people exiting the building
+(N$^{\text{O}}$(t)) we used the same 4 lagged values for the observations
+(lags 1, 2, 48, 336) but included an extra lag for the mean values (lags 1, 48).
+
+After deciding on the model structure, we fit the models below:
+<< label = indFitNoCov >>=
+theta <- c(0.0789, 0.390, 0.137, 0.0540, 0.275, 0.142, 0.129,
+           0.347, 0.163, 0.0490, 0.264, 0.161, 0.000205)
+indFitNoCov <- fitPoARX(formula = FlowIn | FlowOut ~ 1 | 1,
+                        data = training,
+                        init = theta,
+                        ylags = c(1, 2, 48, 336),
+                        mulags = matrix(c(1, 0, 1, 48), ncol = 2),
+                        indep = TRUE, sameParams = FALSE,
+                        zeroFix = 1e-25)
+@
+<< label = biFitNoCov >>=
+theta <- c(0.0789, 0.390, 0.137, 0.0540, 0.275, 0.142, 0.129,
+           0.347, 0.163, 0.0490, 0.264, 0.161, 0.000205, 2.02)
+biFitNoCov <- fitPoARX(formula = FlowIn | FlowOut ~ 1 | 1,
+                       data = training,
+                       init = theta,
+                       ylags = c(1, 2, 48, 336),
+                       mulags = matrix(c(1, 0, 1, 48), ncol = 2),
+                       indep = FALSE, sameParams = FALSE,
+                       zeroFix = 1e-25)
+@
+<< label = indFitCov >>=
+theta <- c(0.0185, 0.396, 0.113, 0.0484, 0.256, 0.140, 0.102, 0.229, 5.68,
+           0.0347, 0.342, 0.153, 0.0452, 0.255, 0.136, 2.95e-09,
+           0.153, 0.299, 2.50)
+indFitCov <- fitPoARX(formula = FlowIn | FlowOut ~
+                        Weekday + DayTime + EventStart |
+                        Weekday + DayTime + EventEnd,
+                      data = training,
+                      init = theta,
+                      ylags = c(1, 2, 48, 336),
+                      mulags = matrix(c(1, 0, 1, 48), ncol = 2),
+                      indep = TRUE, sameParams = FALSE,
+                      zeroFix = 1e-25)
+@
+<< label = biFitCov >>=
+theta <- c(0.0185, 0.396, 0.113, 0.0484, 0.256, 0.140, 0.102, 0.229, 5.68,
+            0.0347, 0.342, 0.153, 0.0452, 0.255, 0.136, 2.95e-09,
+            0.153, 0.299, 2.50, 2.78)
+biFitCov <- fitPoARX(formula = FlowIn | FlowOut ~
+                        Weekday + DayTime + EventStart |
+                        Weekday + DayTime + EventEnd,
+                     data = training,
+                     init = theta,
+                     ylags = c(1, 2, 48, 336),
+                     mulags = matrix(c(1, 0, 1, 48), ncol = 2),
+                     indep = FALSE, sameParams = FALSE,
+                     zeroFix = 1e-25)
+@
+
+The full details regarding the fitted models can be found in
+Appendix~\ref{A:fitted}. However, we draw attention only to significant of the
+covariates. In every model except Model~2, $\beta_{2}^{\text{O}}$ is not
+statistically significant. However, when we fit a new model without this
+covariate, the strength of the predictions considerably decreases. For this
+reason, we choose to leave the $48^\text{th}$ lagged mean in our models. Every
+other parameter is significant. In the printed summary of the model, information
+criteria is given - both AIC \citep{Akaike1974}, and BIC \citep{Schwarz1978}.
+These are summarised in Table~\ref{T:CVTrainScores} along with the
+cross-validated log-score.
+
+\begin{table}[ht]
+\caption{Model training scores from cross-validated fit on 4000 observations}
+\centering
+\begin{tabular}{| c c c c |}
+\hline
+Model number & Log score & AIC & BIC \\[0.5ex]
+\hline
+1 & -15444 & 30252 & 30334 \\
+2 & -15411 & 29756 & 29845 \\
+3 & -25088 & 29800 & 29920 \\
+4 & -16856 & 29269 & 29395 \\
+\hline
+\end{tabular}
+\label{T:CVTrainScores}
+\end{table}
+
+According to the information criteria, the best model is Model~4, which includes
+covariates and dependence. Further, it seems that adding the covariates to the
+model improves the strength of predictions for the time series modelled
+independently (Model~2 vs. Model~1) and using Frank's copula (Model~4 vs.
+Model~3). However, we are more interested in the prediction accuracy, so we
+focus on the log scores. Comparing Models 1 and 2 to Models 3 and 4 it seems
+that using the exogenous covariates weakens the in-sample predictions despite
+the significance of each of the parameters. Furthermore, we can deduce that
+the use of Frank's copula improves predictions over those made by the
+independence assumption. The worst score was obtained by Model~3 - the model
+containing covariates and with the joint distribution considered independent. We
+suggest that a reason for the poor performance of this model is the contrasting
+stipulation made by including the covariates and assuming independence - since
+the models share common covariates they should not be considered as independent
+time series.
+
+\subsection{Prediction and out-of-sample model evaluation}
+
+For predictive models, judging only the in-sample performance can be misleading.
+A better judge of a models capabilities are discovered using an external sample
+to evaluate performance. We use the 1040 observations left out of the training
+set as the test data and again use the log score to evaluate the predictions.
+The results are displayed below, using the \code{predict} function.
+
+<< label = testing >>=
+testing <- building[4001:5040,]
+@
+
+<< label = prediction >>=
+indPred1 <- predict(indFitNoCov, newdata = testing, type = "probability")
+sum(log(pmax(indPred1, 1e-25)))
+
+biPred1 <- predict(biFitNoCov, newdata = testing, type = "probability")
+sum(log(pmax(biPred1, 1e-25)))
+
+indPred2 <- predict(indFitCov, newdata = testing, type = "probability")
+sum(log(pmax(indPred2, 1e-25)))
+
+biPred2 <- predict(biFitCov, newdata = testing, type = "probability")
+sum(log(pmax(biPred2, 1e-25)))
+@
+
+From these figures we notice that Model 4 is the superior model when it comes to
+out-of-sample prediction. This would suggest that the combination of the time
+series aspects, the covariates, and the joint distribution is the most accurate
+way of modelling these data. Exploring the results on a more detailed level, we
+notice that the log scores of Models~1 and 3 are similar, showing that adding
+the covariates when the time series are independent does not have a great deal
+of effect. However, by comparing Models~2 and 4 we notice that by removing the
+independence assumption the covariates add more predictive power. The other
+observation we can make is the improvement of the predictions when using Frank's
+copula - regardless of the covariates, Frank's copula is clearly a better fit
+for the joint distribution than an independence assumption.
+
+%%%%------------------------------------------------------------------------%%%%
+%%%%------ Conclusions
+\section{Conclusions}
+
+PoARX models propose a new model for multivariate time series of count data and
+these models are implemented in the \code{PoARX} in R. We demonstrated with
+building data that combining time series covariates, exogenous covariates, and a
+dependence structure can lead to more accurate predictions. Details of the
+theory surrounding the PoARX models can be found in
+\citet{HallidayBoshnakov2018}, where the models are discussed in greater depth.
+Possible directions for further work include adding options for different
+copulas or different marginal distributions. For example,
+\citet{BoshnakovEtAl2017} have proposed count distributions based on renewal
+processes, allowing for a wider ranges of process to be modelled easily. These
+models are already implemented in R by the package Countr \citep{RCountr}.
+Combining their distributions with the time series aspects of PoARX could lead
+to an interesting class of models for count time series.
+
+%%%%------------------------------------------------------------------------%%%%
+%%%%---------- Bibliography
+
+\bibliographystyle{abbrvnat}
+\bibliography{../inst/REFERENCES.bib}
+
+\begin{appendix}
+
+\section{Fitted modes}
+\label{A:fitted}
+<< label = summaries >>=
+summary(indFitNoCov)
+summary(biFitNoCov)
+summary(indFitCov)
+summary(biFitCov)
+@
+\end{appendix}
+
+
+\end{document}
